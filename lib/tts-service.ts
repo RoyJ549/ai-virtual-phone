@@ -25,6 +25,7 @@ export function resolveVoiceConfig(characterId: string, appId?: ContentAppId): V
  * Supported providers:
  * - Minimax: REST API → hex-encoded mp3
  * - OpenAI: REST API → binary audio blob
+ * - ElevenLabs: same-origin proxy → binary audio blob
  */
 export async function synthesizeSpeech(
     text: string,
@@ -41,6 +42,10 @@ export async function synthesizeSpeech(
 
     if (provider === "OpenAI") {
         return synthesizeOpenAI(text, voiceConfig);
+    }
+
+    if (provider === "ElevenLabs") {
+        return synthesizeElevenLabs(text, voiceConfig);
     }
 
     return null;
@@ -174,7 +179,10 @@ async function synthesizeOpenAI(text: string, config: VoiceApiConfig): Promise<B
     return new Blob([await blob.arrayBuffer()], { type: "audio/mpeg" });
 }
 
-// ── iOS audio playback that coexists with speech recognition ──────────
+// ── ElevenLabs TTS ──────────────────────────────────async function synthesizeElevenLabs(text: string, config: VoiceApiConfig): Promise<Blob | null> {    const voiceId = config.defaultVoice?.trim();    if (!voiceId) throw new Error("ElevenLabs Voice ID 未配置");    const baseUrl = (config.baseUrl || "/api/voice/elevenlabs").replace(/\/$/, "");    const response = await fetchWithTimeout(`${baseUrl}/audio/speech`, {        method: "POST",        headers: {
+            "Content-Type": "application/json",
+            ...(config.apiKey?.trim() ? { "X-ElevenLabs-Key": config.apiKey.trim() } : {}),
+        },        body: JSON.stringify({            text,            voice_id: voiceId,            model_id: config.model || "eleven_v3",        }),    });    if (!response.ok) {        const errText = await response.text().catch(() => "");        throw new Error(`ElevenLabs TTS 请求失败 (${response.status}): ${errText}`);    }    const blob = await response.blob();    return new Blob([await blob.arrayBuffer()], { type: "audio/mpeg" });}// ── iOS audio playback that coexists with speech recognition ──────────
 // On iOS Safari, playing TTS through an <audio> element keeps the system audio
 // session in "playback" mode, which steals the mic from webkitSpeechRecognition
 // and stops it from restarting on the next turn (calls go silent after one
