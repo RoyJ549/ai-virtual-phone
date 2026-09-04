@@ -25,12 +25,12 @@ export async function POST(request: Request) {
         const voiceId = stringField(body.voice ?? body.voice_id);
         const modelId = stringField(body.model ?? body.model_id) || DEFAULT_MODEL;
         const envKey = process.env.ELEVENLABS_API_KEY?.trim() || "";
-        const requestKey = bearerToken(request);
-        const apiKey = envKey || (requestKey === "server-managed" ? "" : requestKey);
+        const requestKey = request.headers.get("x-elevenlabs-key")?.trim() || bearerToken(request);
+        const apiKey = envKey || requestKey;
 
         if (!apiKey) {
             return NextResponse.json(
-                { error: "missing_api_key", message: "ElevenLabs API Key 未配置。请在 Netlify 设置 ELEVENLABS_API_KEY。" },
+                { error: "missing_api_key", message: "ElevenLabs API Key 未配置。请在语音配置中填写，或在 Netlify 设置 ELEVENLABS_API_KEY。" },
                 { status: 400 },
             );
         }
