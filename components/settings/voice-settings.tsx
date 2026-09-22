@@ -865,13 +865,21 @@ export function VoiceSettings() {
                                             <label className="menu-desc ml-1">默认音色 (Default Voice) 或 自定义 Voice ID</label>
                                             <div className="flex flex-col gap-2">
                                                 <div className="flex gap-2">
-                                                    {manualVoiceIds[config.id] ? (
+                                                    {config.provider === "ElevenLabs" ? (
+                                                        <Input
+                                                            type="text"
+                                                            value={config.defaultVoice || ""}
+                                                            onChange={(e) => updateConfig(config.id, { defaultVoice: e.target.value })}
+                                                            placeholder="填写 ElevenLabs Voice ID"
+                                                            className="flex-1"
+                                                        />
+                                                    ) : manualVoiceIds[config.id] ? (
                                                         <>
                                                             <Input
                                                                 type="text"
                                                                 value={config.defaultVoice}
                                                                 onChange={(e) => updateConfig(config.id, { defaultVoice: e.target.value })}
-                                                                placeholder={config.provider === "OpenAI" ? "alloy" : config.provider === "ElevenLabs" ? "粘贴 ElevenLabs Voice ID" : "male-qn-qingse 或克隆 Voice ID"}
+                                                                placeholder={config.provider === "OpenAI" ? "alloy" : "male-qn-qingse 或克隆 Voice ID"}
                                                                 className="flex-1"
                                                             />
                                                             <button
@@ -917,14 +925,16 @@ export function VoiceSettings() {
                                                 </div>
 
                                                 <div className="flex gap-2 mt-0.5">
-                                                    <button
-                                                        onClick={() => fetchVoices(config)}
-                                                        disabled={isFetching[config.id] || config.provider === "ElevenLabs"}
-                                                        className="ui-btn ui-btn ui-btn-soft-action w-full"
-                                                    >
-                                                        <RefreshCw size={16} className={isFetching[config.id] ? "animate-spin" : ""} />
-                                                        {config.provider === "ElevenLabs" ? "Voice ID 手动填写" : isFetching[config.id] ? "同步中..." : config.provider === "Minimax" ? "同步音色列表" : "显示默认音色"}
-                                                    </button>
+                                                    {config.provider !== "ElevenLabs" && (
+                                                        <button
+                                                            onClick={() => fetchVoices(config)}
+                                                            disabled={isFetching[config.id]}
+                                                            className="ui-btn ui-btn ui-btn-soft-action w-full"
+                                                        >
+                                                            <RefreshCw size={16} className={isFetching[config.id] ? "animate-spin" : ""} />
+                                                            {isFetching[config.id] ? "同步中..." : config.provider === "Minimax" ? "同步音色列表" : "显示默认音色"}
+                                                        </button>
+                                                    )}
                                                     {config.provider === "Minimax" && (
                                                         <button
                                                             onClick={() => openCloneModal(config)}
