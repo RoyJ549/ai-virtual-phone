@@ -245,6 +245,60 @@ export function VoiceSettings() {
     const [manualVoiceIds, setManualVoiceIds] = useState<Record<string, boolean>>({});
     const [isLoaded, setIsLoaded] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+    const previewUrlRef = useRef<string | null>(null);
+    const previewRequestRef = useRef(0);
+
+    const getPreviewAudioContext = useCallback((): AudioContext | null => {
+        if (typeof window === "undefined") return null;
+        if (audioContextRef.current) return audioContextRef.current;
+
+        const AudioContextConstructor = window.AudioContext
+            || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextConstructor) return null;
+
+        audioContextRef.current = new AudioContextConstructor();
+        return audioContextRef.current;
+    }, []);
+
+    const stopPreview = useCallback((resetState = true) => {
+        previewRequestRef.current += 1;
+
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.src = "";
+            audioRef.current = null;
+        }
+
+        if (audioSourceRef.current) {
+            const source = audioSourceRef.current;
+            source.onended = null;
+            try {
+                source.stop();
+            } catch {
+                // The source may already have ended.
+            }
+            source.disconnect();
+            audioSourceRef.current = null;
+        }
+
+        if (previewUrlRef.current) {
+            URL.revokeObjectURL(previewUrlRef.current);
+            previewUrlRef.current = null;
+        }
+
+        if (resetState) setPlayingVoiceId(null);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            stopPreview(false);
+            const context = audioContextRef.current;
+            audioContextRef.current = null;
+            if (context) void context.close();
+        };
+    }, [stopPreview]);
 
     // Fetching states for Voices
     const [isFetching, setIsFetching] = useState<Record<string, boolean>>({});
@@ -533,18 +587,18 @@ export function VoiceSettings() {
 
     const togglePreview = async (config: VoiceApiConfig) => {
         if (playingVoiceId === config.id) {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
-            setPlayingVoiceId(null);
+            stopPreview();
             return;
         }
 
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
+        stopPreview(false);
+        const requestId = previewRequestRef.current;
+        const audioContext = getPreviewAudioContext();
+        // Call resume synchronously from the click handler before awaiting TTS.
+        // This preserves iOS Safari/PWA user activation for the eventual source.start().
+        const audioContextReady = audioContext && audioContext.state !== "running"
+            ? audioContext.resume()
+            : Promise.resolve();
 
         setPlayingVoiceId(config.id);
 
@@ -557,22 +611,45 @@ export function VoiceSettings() {
                 config,
             );
             if (!blob) throw new Error("当前语音配置未返回真实音频");
-            const url = URL.createObjectURL(blob);
+            await audioContextReady;
+            if (requestId !== previewRequestRef.current) return;
 
+            if (audioContext) {
+                const audioBuffer = await audioContext.decodeAudioData(await blob.arrayBuffer());
+                if (requestId !== previewRequestRef.current) return;
+
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.onended = () => {
+                    if (audioSourceRef.current !== source) return;
+                    source.disconnect();
+                    audioSourceRef.current = null;
+                    setPlayingVoiceId(null);
+                };
+                audioSourceRef.current = source;
+                source.start(0);
+                return;
+            }
+
+            // Fallback for browsers without Web Audio support.
+            const url = URL.createObjectURL(blob);
+            previewUrlRef.current = url;
             const audio = new Audio(url);
             audioRef.current = audio;
-            audio.onended = () => {
-                setPlayingVoiceId(null);
+            const finishFallback = () => {
+                if (audioRef.current !== audio) return;
                 audioRef.current = null;
+                previewUrlRef.current = null;
                 URL.revokeObjectURL(url);
-            };
-            audio.onerror = () => {
                 setPlayingVoiceId(null);
-                audioRef.current = null;
-                URL.revokeObjectURL(url);
             };
+            audio.onended = finishFallback;
+            audio.onerror = finishFallback;
             await audio.play();
         } catch (e: unknown) {
+            if (requestId !== previewRequestRef.current) return;
+            stopPreview(false);
             const msg = e instanceof Error ? e.message : String(e);
             alert(`语音测试失败: ${msg}`);
             setPlayingVoiceId(null);
